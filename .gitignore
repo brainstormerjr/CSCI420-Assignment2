@@ -1,0 +1,17 @@
+# Ignore all compilation-related files in the hw1 directory
+hw1/*.o
+hw1/*.obj
+hw1/*.exe
+hw1/*.dll
+hw1/*.so
+hw1/*.dylib
+hw1/*.out
+hw1/*.a
+hw1/*.lib
+hw1/*.class
+hw1/*.jar
+hw1/*.pyc
+hw1/*.pyo
+hw1/*.log
+hw1/*.tmp
+hw1/*.swp
