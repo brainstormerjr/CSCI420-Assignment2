@@ -42,13 +42,19 @@ int rightMouseButton = 0; // 1 if pressed, 0 if not
 typedef enum { ROTATE, TRANSLATE, SCALE } CONTROL_STATE;
 CONTROL_STATE controlState = ROTATE;
 
+// Width and height of terrain object in world space
+float terrainWidth = 5;
+float terrainHeight = 5;
+
 // Transformations of the terrain.
-float terrainRotate[3] = { 0.0f, 0.0f, 0.0f }; 
+float terrainRotate[3] = { -45.0f, 0.0f, 0.0f }; 
 // terrainRotate[0] gives the rotation around x-axis (in degrees)
 // terrainRotate[1] gives the rotation around y-axis (in degrees)
 // terrainRotate[2] gives the rotation around z-axis (in degrees)
-float terrainTranslate[3] = { 0.0f, 0.0f, 0.0f };
+float terrainTranslate[3] = { -terrainWidth / 2, -terrainHeight / 2, 0.0f };
 float terrainScale[3] = { 1.0f, 1.0f, 1.0f };
+float smoothScale = 1.0f;
+float smoothExponent = 1.0f;
 
 // Width and height of the OpenGL window, in pixels.
 int windowWidth = 1280;
@@ -61,12 +67,407 @@ ImageIO * heightmapImage;
 // Number of vertices in the single triangle (starter code).
 int numVertices;
 
+typedef enum { POINTS, WIREFRAME, SURFACE } RENDER_MODE;
+bool smoothing = false;
+RENDER_MODE renderMode = POINTS;
+
+int screenshotCount = 0;
+int targetScreenshotCount = 280;
+
 // CSCI 420 helper classes.
 OpenGLMatrix matrix;
 PipelineProgram * pipelineProgram = nullptr;
 VBO * vboVertices = nullptr;
 VBO * vboColors = nullptr;
+VBO * vboLeft = nullptr;
+VBO * vboRight = nullptr;
+VBO * vboUp = nullptr;
+VBO * vboDown = nullptr;
 VAO * vao = nullptr;
+
+// Compute the neighbors of a given vertex and add them to the array.
+void computeNeighbors(
+  float * leftPositions, float * rightPositions,
+  float * upPositions, float * downPositions,
+  int x, int y,
+  float xGap, float yGap,
+  int& offsetIndex
+)
+{
+
+  int width = heightmapImage->getWidth();
+  int height = heightmapImage->getHeight();
+
+  // Left vertex
+  if (x > 0)
+  {
+    leftPositions[offsetIndex] = (x - 1) * xGap;
+    leftPositions[offsetIndex + 1] = y * yGap;
+    leftPositions[offsetIndex + 2] = heightmapImage->getPixel(x - 1, y, 0) / 255.0f;
+  }
+  else
+  {
+    leftPositions[offsetIndex] = x * xGap;
+    leftPositions[offsetIndex + 1] = y * yGap;
+    leftPositions[offsetIndex + 2] = heightmapImage->getPixel(x, y, 0) / 255.0f;;
+  }
+
+  // Right vertex
+  if (x < width - 1)
+  {
+    rightPositions[offsetIndex] = (x + 1) * xGap;
+    rightPositions[offsetIndex + 1] = y * yGap;
+    rightPositions[offsetIndex + 2] = heightmapImage->getPixel(x + 1, y, 0) / 255.0f;
+  }
+  else
+  {
+    rightPositions[offsetIndex] = x * xGap;
+    rightPositions[offsetIndex + 1] = y * yGap;
+    rightPositions[offsetIndex + 2] = heightmapImage->getPixel(x, y, 0) / 255.0f;;
+  }
+
+  // Up vertex
+  if (y < height - 1)
+  {
+    upPositions[offsetIndex] = x * xGap;
+    upPositions[offsetIndex + 1] = (y + 1) * yGap;
+    upPositions[offsetIndex + 2] = heightmapImage->getPixel(x, y + 1, 0) / 255.0f;
+  }
+  else
+  {
+    upPositions[offsetIndex] = x * xGap;
+    upPositions[offsetIndex + 1] = y * yGap;
+    upPositions[offsetIndex + 2] = heightmapImage->getPixel(x, y, 0) / 255.0f;;
+  }
+
+  // Down vertex
+  if (y > 0)
+  {
+    downPositions[offsetIndex] = x * xGap;
+    downPositions[offsetIndex + 1] = (y - 1) * yGap;
+    downPositions[offsetIndex + 2] = heightmapImage->getPixel(x, y - 1, 0) / 255.0f;
+  }
+  else
+  {
+    downPositions[offsetIndex] = x * xGap;
+    downPositions[offsetIndex + 1] = y * yGap;
+    downPositions[offsetIndex + 2] = heightmapImage->getPixel(x, y, 0) / 255.0f;;
+  }
+
+  offsetIndex += 3;
+}
+
+// Compute a quad (two triangles) and add them to the positions and colors array
+void computeQuad(
+  float * positions, float * colors,
+  int x, int y,
+  float xGap, float yGap,
+  int& vertexIndex, int& colorIndex, int& offsetIndex,
+  bool smoothing = false,
+  float * leftPositions = nullptr, float * rightPositions = nullptr,
+  float * upPositions = nullptr, float * downPositions = nullptr
+)
+{
+  // Vertices
+  // Triangle 1
+  positions[vertexIndex++] = x * xGap;
+  positions[vertexIndex++] = y * yGap;
+  positions[vertexIndex++] = heightmapImage->getPixel(x, y, 0) / 255.0f;
+  if (smoothing)
+    computeNeighbors(leftPositions, rightPositions, upPositions, downPositions, x, y, xGap, yGap, offsetIndex);
+
+  positions[vertexIndex++] = (x + 1) * xGap;
+  positions[vertexIndex++] = y * yGap;
+  positions[vertexIndex++] = heightmapImage->getPixel(x+1, y, 0) / 255.0f;
+  if (smoothing)
+    computeNeighbors(leftPositions, rightPositions, upPositions, downPositions, x+1, y, xGap, yGap, offsetIndex);
+
+  positions[vertexIndex++] = x * xGap;
+  positions[vertexIndex++] = (y + 1) * yGap;
+  positions[vertexIndex++] = heightmapImage->getPixel(x, y+1, 0) / 255.0f;
+  if (smoothing)
+    computeNeighbors(leftPositions, rightPositions, upPositions, downPositions, x, y+1, xGap, yGap, offsetIndex);
+
+  // Triangle 2
+  positions[vertexIndex++] = (x + 1) * xGap;
+  positions[vertexIndex++] = (y + 1)* yGap;
+  positions[vertexIndex++] = heightmapImage->getPixel(x+1, y+1, 0) / 255.0f;
+  if (smoothing)
+    computeNeighbors(leftPositions, rightPositions, upPositions, downPositions, x+1, y+1, xGap, yGap, offsetIndex);
+
+  positions[vertexIndex++] = (x + 1) * xGap;
+  positions[vertexIndex++] = y * yGap;
+  positions[vertexIndex++] = heightmapImage->getPixel(x+1, y, 0) / 255.0f;
+  if (smoothing)
+    computeNeighbors(leftPositions, rightPositions, upPositions, downPositions, x+1, y, xGap, yGap, offsetIndex);
+
+  positions[vertexIndex++] = x * xGap;
+  positions[vertexIndex++] = (y + 1) * yGap;
+  positions[vertexIndex++] = heightmapImage->getPixel(x, y+1, 0) / 255.0f;
+  if (smoothing)
+    computeNeighbors(leftPositions, rightPositions, upPositions, downPositions, x, y+1, xGap, yGap, offsetIndex);
+
+  // Colors
+  // Triangle 1
+  float value = heightmapImage->getPixel(x, y, 0) / 255.0f;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = 1.0f;
+
+  value = heightmapImage->getPixel(x+1, y, 0) / 255.0f;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = 1.0f;
+
+  value = heightmapImage->getPixel(x, y+1, 0) / 255.0f;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = 1.0f;
+
+  // Triangle 2
+  value = heightmapImage->getPixel(x+1, y+1, 0) / 255.0f;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = 1.0f;
+
+  value = heightmapImage->getPixel(x+1, y, 0) / 255.0f;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = 1.0f;
+
+  value = heightmapImage->getPixel(x, y+1, 0) / 255.0f;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = value;
+  colors[colorIndex++] = 1.0f;
+}
+
+// Re-compute height data depending on the renderMode.
+// Should be called after every time the renderMode is changed
+void computeHeightData()
+{
+  if (vboVertices == nullptr)
+  {
+    delete vboVertices;
+    vboVertices = nullptr;
+  }
+  if (vboColors == nullptr)
+  {
+    delete vboColors;
+    vboColors = nullptr;
+  }
+  if (vao == nullptr) {
+    delete vao;
+    vao = nullptr;
+  }
+  if (vboLeft == nullptr)
+  {
+    delete vboLeft;
+    vboLeft = nullptr;
+  }
+  if (vboRight == nullptr)
+  {
+    delete vboRight;
+    vboRight = nullptr;
+  }
+  if (vboUp == nullptr)
+  {
+    delete vboUp;
+    vboUp = nullptr;
+  }
+  if (vboDown == nullptr)
+  {
+    delete vboDown;
+    vboDown = nullptr;
+  }
+
+  int width = heightmapImage->getWidth();
+  int height = heightmapImage->getHeight();
+  float xGap = terrainWidth / (float) heightmapImage->getWidth() ;
+  float yGap = terrainHeight / (float) heightmapImage->getHeight();
+
+  float * positions;
+  float * colors;
+
+  float * leftPositions;
+  float * rightPositions;
+  float * upPositions;
+  float * downPositions;
+
+  if (renderMode == POINTS)
+  {
+    // Prepare the triangle position and color data for the VBO. 
+
+    numVertices = width * height;
+
+    // Vertex positions.
+    positions = (float*) malloc (numVertices * 3 * sizeof(float)); // 3 floats per vertex, i.e., x,y,z
+    // Vertex colors.
+    colors = (float*) malloc (numVertices * 4 * sizeof(float)); // 4 floats per vertex, i.e., r,g,b,a
+
+    int vertexIndex = 0; int colorIndex = 0;
+    for (int y = 0; y < heightmapImage->getHeight(); y++)
+    {
+      for (int x = 0; x < heightmapImage->getWidth(); x++)
+      {
+        positions[vertexIndex++] = (float) x * xGap; // x position
+        positions[vertexIndex++] = (float) y * yGap; // y position
+        positions[vertexIndex++] = heightmapImage->getPixel(x, y, 0) / 255.0f; // z position
+        
+        float value = heightmapImage->getPixel(x, y, 0) / 255.0f;
+        colors[colorIndex++] = value; // r value
+        colors[colorIndex++] = value; // g value
+        colors[colorIndex++] = value; // b value
+        colors[colorIndex++] = 1.0; // a value
+      }
+    }
+  }
+  else if (renderMode == WIREFRAME)
+  {
+    numVertices = (width - 1) * height * 2 + (height - 1) * width * 2;
+
+    // Vertex positions for the wireframe
+    positions = (float*) malloc(numVertices * 3 * sizeof(float));
+    // Vertex colors
+    colors = (float*) malloc(numVertices * 4 * sizeof(float));
+
+    int vertexIndex = 0; int colorIndex = 0;
+    for (int y = 0; y < height; y++)
+    {
+      for (int x = 0; x < width - 1; x++)
+      {
+        // Horizontal line segment
+        positions[vertexIndex++] = x * xGap;
+        positions[vertexIndex++] = y * yGap;
+        positions[vertexIndex++] = heightmapImage->getPixel(x, y, 0) / 255.0f;
+
+        positions[vertexIndex++] = (x + 1) * xGap;
+        positions[vertexIndex++] = y * yGap;
+        positions[vertexIndex++] = heightmapImage->getPixel(x + 1, y, 0) / 255.0f;
+
+        float value = heightmapImage->getPixel(x, y, 0) / 255.0f;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = 1.0f;
+
+        value = heightmapImage->getPixel(x, y+1, 0) / 255.0f;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = 1.0f;
+      }
+    }
+
+    for (int y = 0; y < height - 1; y++)
+    {
+      for (int x = 0; x < width; x++)
+      {
+        // Vertical line segment
+        positions[vertexIndex++] = x * xGap;
+        positions[vertexIndex++] = y * yGap;
+        positions[vertexIndex++] = heightmapImage->getPixel(x, y, 0) / 255.0f;
+
+        positions[vertexIndex++] = x * xGap;
+        positions[vertexIndex++] = (y + 1) * yGap;
+        positions[vertexIndex++] = heightmapImage->getPixel(x, y + 1, 0) / 255.0f;
+
+        float value = heightmapImage->getPixel(x, y, 0) / 255.0f;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = 1.0f;
+
+        value = heightmapImage->getPixel(x, y+1, 0) / 255.0f;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = value;
+        colors[colorIndex++] = 1.0f;
+      }
+    }
+  }
+  else if (renderMode == SURFACE)
+  {
+    numVertices = (width - 1) * (height - 1) * 6; // 2 triangles per quad, 3 vertices per triangle
+
+    // Vertex positions for the wireframe
+    positions = (float*) malloc(numVertices * 3 * sizeof(float));
+    // Vertex colors
+    colors = (float*) malloc(numVertices * 4 * sizeof(float));
+
+    if (smoothing)
+    {
+      leftPositions = (float*) malloc(numVertices * 3 * sizeof(float));
+      rightPositions = (float*) malloc(numVertices * 3 * sizeof(float));
+      upPositions = (float*) malloc(numVertices * 3 * sizeof(float));
+      downPositions = (float*) malloc(numVertices * 3 * sizeof(float));
+    }
+
+    int vertexIndex = 0; int colorIndex = 0; int offsetIndex = 0;
+    if (!smoothing)
+    {
+      for (int y = 0; y < height - 1; y++)
+      {
+        for (int x = 0; x < width - 1; x++)
+        {
+          computeQuad(positions, colors, x, y, xGap, yGap, vertexIndex, colorIndex, offsetIndex);
+        }
+      }
+    }
+    else
+    {
+      for (int y = 0; y < height - 1; y++)
+      {
+        for (int x = 0; x < width - 1; x++)
+        {
+          computeQuad(positions, colors, x, y, xGap, yGap, vertexIndex, colorIndex, offsetIndex, true, leftPositions, rightPositions, upPositions, downPositions);
+        }
+      }
+    }
+  }
+
+  // Create the VBOs.
+  vboVertices = new VBO(numVertices, 3, positions, GL_STATIC_DRAW);
+  vboColors = new VBO(numVertices, 4, colors, GL_STATIC_DRAW);
+  
+  if (smoothing)
+  {
+    vboLeft = new VBO(numVertices, 3, leftPositions, GL_STATIC_DRAW);
+    vboRight = new VBO(numVertices, 3, rightPositions, GL_STATIC_DRAW);
+    vboUp = new VBO(numVertices, 3, upPositions, GL_STATIC_DRAW);
+    vboDown = new VBO(numVertices, 3, downPositions, GL_STATIC_DRAW);
+  }
+
+  // Create the VAO.
+  vao = new VAO();
+
+  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboVertices, "position");
+  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboColors, "color");
+
+  if (smoothing)
+  {
+    vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboLeft, "p_up");
+    vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboRight, "p_down");
+    vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboUp, "p_left");
+    vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboDown, "p_right");
+  }
+
+  free(positions);
+  free(colors);
+
+  if (smoothing)
+  {
+    free(leftPositions);
+    free(rightPositions);
+    free(upPositions);
+    free(downPositions);
+  }
+}
 
 // Write a screenshot to the specified filename.
 void saveScreenshot(const char * filename)
@@ -85,8 +486,38 @@ void saveScreenshot(const char * filename)
 
 void idleFunc()
 {
-  // Do some stuff... 
-  // For example, here, you can save the screenshots to disk (to make the animation).
+
+  // Cycle through the four render modes, with 70 frames each.
+  // Total: 280 frames (set this global variable at the start of the file)
+
+  if (screenshotCount < targetScreenshotCount)
+  {
+    terrainRotate[2] += 180.0f / 70.0f; // 180deg rotation in 70 frames
+    screenshotCount++;
+    char filename[256];
+    sprintf(filename, "%03d.jpg", screenshotCount);
+    saveScreenshot(filename);
+    if (screenshotCount % 70 == 0)
+    {
+      if (renderMode == POINTS) 
+      {
+        renderMode = WIREFRAME;
+        computeHeightData();
+      }
+      else if (renderMode == WIREFRAME)
+      {
+        renderMode = SURFACE;
+        computeHeightData();
+      }
+      else if (renderMode == SURFACE)
+      {
+        renderMode = SURFACE;
+        smoothing = true;
+        pipelineProgram->SetUniformVariablei("mode", 1);
+        computeHeightData();
+      }
+    }
+  }
 
   // Notify GLUT that it should call displayFunc.
   glutPostRedisplay();
@@ -124,9 +555,9 @@ void mouseMotionDragFunc(int x, int y)
         terrainTranslate[0] += mousePosDelta[0] * 0.01f;
         terrainTranslate[1] -= mousePosDelta[1] * 0.01f;
       }
-      if (middleMouseButton)
+      if (rightMouseButton)
       {
-        // control z translation via the middle mouse button
+        // control z translation via the right mouse button
         terrainTranslate[2] += mousePosDelta[1] * 0.01f;
       }
       break;
@@ -139,9 +570,9 @@ void mouseMotionDragFunc(int x, int y)
         terrainRotate[0] += mousePosDelta[1];
         terrainRotate[1] += mousePosDelta[0];
       }
-      if (middleMouseButton)
+      if (rightMouseButton)
       {
-        // control z rotation via the middle mouse button
+        // control z rotation via the right mouse button
         terrainRotate[2] += mousePosDelta[1];
       }
       break;
@@ -154,7 +585,7 @@ void mouseMotionDragFunc(int x, int y)
         terrainScale[0] *= 1.0f + mousePosDelta[0] * 0.01f;
         terrainScale[1] *= 1.0f - mousePosDelta[1] * 0.01f;
       }
-      if (middleMouseButton)
+      if (rightMouseButton)
       {
         // control z scaling via the middle mouse button
         terrainScale[2] *= 1.0f - mousePosDelta[1] * 0.01f;
@@ -198,7 +629,7 @@ void mouseButtonFunc(int button, int state, int x, int y)
   // Keep track of whether CTRL and SHIFT keys are pressed.
   switch (glutGetModifiers())
   {
-    case GLUT_ACTIVE_CTRL:
+    case GLUT_ACTIVE_ALT:
       controlState = TRANSLATE;
     break;
 
@@ -233,6 +664,72 @@ void keyboardFunc(unsigned char key, int x, int y)
       // Take a screenshot.
       saveScreenshot("screenshot.jpg");
     break;
+
+    case '1':
+      renderMode = POINTS;
+      smoothing = false;
+      pipelineProgram->SetUniformVariablei("mode", 0);
+      computeHeightData();
+      cout << "Render mode : Points" << endl;
+    break;
+
+    case '2':
+      renderMode = WIREFRAME;
+      smoothing = false;
+      pipelineProgram->SetUniformVariablei("mode", 0);
+      computeHeightData();
+      cout << "Render mode : Wireframe" << endl;
+    break;
+
+    case '3':
+      renderMode = SURFACE;
+      smoothing = false;
+      pipelineProgram->SetUniformVariablei("mode", 0);
+      computeHeightData();
+      cout << "Render mode : Surface" << endl;
+    break;
+
+    case '4':
+      renderMode = SURFACE;
+      smoothing = true;
+      pipelineProgram->SetUniformVariablei("mode", 1);
+      computeHeightData();
+      cout << "Render mode : Smooth" << endl;
+    break;
+
+    case '=':
+      smoothScale *= 2.0f;
+      pipelineProgram->SetUniformVariablef("scale", smoothScale);
+    break;
+
+    case '-':
+      smoothScale /= 2.0f;
+      pipelineProgram->SetUniformVariablef("scale", smoothScale);
+    break;
+
+    case '9':
+      smoothExponent *= 2.0f;
+      pipelineProgram->SetUniformVariablef("exponent", smoothExponent);
+    break;
+
+    case '0':
+      smoothExponent /= 2.0f;
+      pipelineProgram->SetUniformVariablef("exponent", smoothExponent);
+    break;
+
+    case 't':
+      controlState = TRANSLATE;
+    break;
+  }
+}
+
+void keyboardUpFunc(unsigned char key, int x, int y)
+{
+  switch (key)
+  {
+    case 't':
+      controlState = ROTATE;
+    break;
   }
 }
 
@@ -252,6 +749,11 @@ void displayFunc()
 
   // In here, you can do additional modeling on the object, such as performing translations, rotations and scales.
   // ...
+  matrix.Rotate(terrainRotate[0], 1.0, 0.0, 0.0);
+  matrix.Rotate(terrainRotate[1], 0.0, 1.0, 0.0);
+  matrix.Rotate(terrainRotate[2], 0.0, 0.0, 1.0);
+  matrix.Translate(terrainTranslate[0], terrainTranslate[1], terrainTranslate[2]);
+  matrix.Scale(terrainScale[0], terrainScale[1], terrainScale[2]);
 
   // Read the current modelview and projection matrices from our helper class.
   // The matrices are only read here; nothing is actually communicated to OpenGL yet.
@@ -274,7 +776,18 @@ void displayFunc()
   // Execute the rendering.
   // Bind the VAO that we want to render. Remember, one object = one VAO. 
   vao->Bind();
-  glDrawArrays(GL_TRIANGLES, 0, numVertices); // Render the VAO, by rendering "numVertices", starting from vertex 0.
+  if (renderMode == POINTS)
+  {
+    glDrawArrays(GL_POINTS, 0, numVertices); // Render the VAO, by rendering "numVertices", starting from vertex 0.
+  }
+  else if (renderMode == WIREFRAME)
+  {
+    glDrawArrays(GL_LINES, 0, numVertices);
+  }
+  else if (renderMode == SURFACE)
+  {
+    glDrawArrays(GL_TRIANGLES, 0, numVertices);
+  }
 
   // Swap the double-buffers.
   glutSwapBuffers();
@@ -318,48 +831,10 @@ void initScene(int argc, char *argv[])
   // From that point on, exactly one pipeline program is bound at any moment of time.
   pipelineProgram->Bind();
 
-  // Prepare the triangle position and color data for the VBO. 
-  // The code below sets up a single triangle (3 vertices).
-  // The triangle will be rendered using GL_TRIANGLES (in displayFunc()).
+  computeHeightData();
 
-  numVertices = 3; // This must be a global variable, so that we know how many vertices to render in glDrawArrays.
-
-  // Vertex positions.
-  float * positions = (float*) malloc (numVertices * 3 * sizeof(float)); // 3 floats per vertex, i.e., x,y,z
-  positions[0] = 0.0; positions[1] = 0.0; positions[2] = 0.0; // (x,y,z) coordinates of the first vertex
-  positions[3] = 0.0; positions[4] = 1.0; positions[5] = 0.0; // (x,y,z) coordinates of the second vertex
-  positions[6] = 1.0; positions[7] = 0.0; positions[8] = 0.0; // (x,y,z) coordinates of the third vertex
-
-  // Vertex colors.
-  float * colors = (float*) malloc (numVertices * 4 * sizeof(float)); // 4 floats per vertex, i.e., r,g,b,a
-  colors[0] = 0.0; colors[1] = 0.0;  colors[2] = 1.0;  colors[3] = 1.0; // (r,g,b,a) channels of the first vertex
-  colors[4] = 1.0; colors[5] = 0.0;  colors[6] = 0.0;  colors[7] = 1.0; // (r,g,b,a) channels of the second vertex
-  colors[8] = 0.0; colors[9] = 1.0; colors[10] = 0.0; colors[11] = 1.0; // (r,g,b,a) channels of the third vertex
-
-  // Create the VBOs. 
-  // We make a separate VBO for vertices and colors. 
-  // This operation must be performed BEFORE we initialize any VAOs.
-  vboVertices = new VBO(numVertices, 3, positions, GL_STATIC_DRAW); // 3 values per position
-  vboColors = new VBO(numVertices, 4, colors, GL_STATIC_DRAW); // 4 values per color
-
-  // Create the VAOs. There is a single VAO in this example.
-  // Important: this code must be executed AFTER we created our pipeline program, and AFTER we set up our VBOs.
-  // A VAO contains the geometry for a single object. There should be one VAO per object.
-  // In this homework, "geometry" means vertex positions and colors. In homework 2, it will also include
-  // vertex normal and vertex texture coordinates for texture mapping.
-  vao = new VAO();
-
-  // Set up the relationship between the "position" shader variable and the VAO.
-  // Important: any typo in the shader variable name will lead to malfunction.
-  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboVertices, "position");
-
-  // Set up the relationship between the "color" shader variable and the VAO.
-  // Important: any typo in the shader variable name will lead to malfunction.
-  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboColors, "color");
-
-  // We don't need this data any more, as we have already uploaded it to the VBO. And so we can destroy it, to avoid a memory leak.
-  free(positions);
-  free(colors);
+  pipelineProgram->SetUniformVariablef("scale", smoothScale);
+  pipelineProgram->SetUniformVariablef("exponent", smoothExponent);
 
   // Check for any OpenGL errors.
   std::cout << "GL error status is: " << glGetError() << std::endl;
