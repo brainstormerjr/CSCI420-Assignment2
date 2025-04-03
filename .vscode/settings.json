@@ -53,7 +53,8 @@
         "unordered_map": "cpp",
         "variant": "cpp",
         "vector": "cpp",
-        "algorithm": "cpp"
+        "algorithm": "cpp",
+        "__assertion_handler": "cpp"
     },
     "C_Cpp.default.compilerPath": "/usr/bin/g++"
 }

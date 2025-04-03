@@ -16,6 +16,9 @@
 
 #include <iostream>
 #include <cstring>
+#include <vector>
+
+
 
 #if defined(WIN32) || defined(_WIN32)
   #ifdef _DEBUG
@@ -55,7 +58,7 @@ int windowWidth = 1280;
 int windowHeight = 720;
 char windowTitle[512] = "CSCI 420 Homework 2";
 
-// Number of vertices in the single triangle (starter code).
+int numPoints = 10001;
 int numVertices;
 
 // CSCI 420 helper classes.
@@ -69,12 +72,12 @@ VAO * vao = nullptr;
 float* coordinates = nullptr;
 
 // Camera speed
-const float speed = 0.001f;
+const float speed = 0.0003f;
 int frameNumber = 0;
 
 // Cross section calculation
-const float root32 = 0.8660254038f;
-float csScale = 1.0f;
+float root32 = 0.8660254038f;
+float csScale = 0.1f;
 
 // Write a screenshot to the specified filename.
 void saveScreenshot(const char * filename)
@@ -97,6 +100,42 @@ struct Point
   float x, y, z;
 };
 
+Point operator+(Point const& a, Point const& b)
+{
+  Point out;
+  out.x = a.x + b.x;
+  out.y = a.y + b.y;
+  out.z = a.z + b.z;
+  return out;
+}
+
+Point operator-(Point const& a, Point const& b)
+{
+  Point out;
+  out.x = a.x - b.x;
+  out.y = a.y - b.y;
+  out.z = a.z - b.z;
+  return out;
+}
+
+Point operator*(float const& f, Point const& p)
+{
+  Point out;
+  out.x = f * p.x;
+  out.y = f * p.y;
+  out.z = f * p.z;
+  return out;
+}
+
+Point operator/(Point const& p, float const& f)
+{
+  Point out;
+  out.x = p.x / f;
+  out.y = p.y / f;
+  out.z = p.z / f;
+  return out;
+}
+
 Point cross(Point a, Point b)
 {
   Point out;
@@ -109,11 +148,12 @@ Point cross(Point a, Point b)
 Point unit(Point p)
 {
   float length = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
-  Point out;
-  out.x = p.x / length;
-  out.y = p.y / length;
-  out.z = p.z / length;
-  return out;
+  if (length == 0.0f)
+  {
+    // Return a zero vector or handle the error appropriately
+    return {0.0f, 0.0f, 0.0f};
+  }
+  return p / length;
 }
 
 // Contains the control points of the spline.
@@ -394,59 +434,11 @@ Point tangentOnSpline(float u)
 // For each point, it also computes the coordinate system, and saves it into the coordinates array
 void drawSpline()
 {
-  if (vboVertices != nullptr)
-  {
-    delete vboVertices;
-    vboVertices = nullptr;
-  }
-  if (vboColors != nullptr)
-  {
-    delete vboColors;
-    vboColors = nullptr;
-  }
-  if (vao != nullptr) {
-    delete vao;
-    vao = nullptr;
-  }
-
-  int numPoints = 1001;
-  numVertices = (numPoints - 1) * 2; // 2 points per line, 1001-1 lines
-  float* positions = new float[numVertices * 3]; int vertexIndex = 0;
-  float* colors = new float[numVertices * 4]; int colorIndex = 0;
-  
-  for (int i = 0; i < numPoints; i++)
-  {
-    float u = 0.001f * i;
-    Point p = pointOnSpline(u);
-
-    int r = (i == 0 || i == 1000) ? 1 : 2;
-    for (int j = 0; j < r; j++)
-    {
-      positions[vertexIndex++] = p.x; positions[vertexIndex++] = p.y; positions[vertexIndex++] = p.z;
-      colors[colorIndex++] = 1.0f;
-      colors[colorIndex++] = 1.0f;
-      colors[colorIndex++] = 1.0f;
-      colors[colorIndex++] = 1.0f;
-    }
-  }
-
-  // Create the VBOs.
-  vboVertices = new VBO(numVertices, 3, positions, GL_STATIC_DRAW);
-  vboColors = new VBO(numVertices, 4, colors, GL_STATIC_DRAW);
-
-  // Create the VAO.
-  vao = new VAO();
-
-  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboVertices, "position");
-  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboColors, "color");
-
-  delete[] positions;
-  delete[] colors;
-
-  // Compute coordinate system for each point
+  // Compute coordinate system for each point first
 
   // 3 vectors per coordinate system, 3 floats per vector
   // Stored in the order t, n, then b
+  numVertices = (numPoints - 1) * 3 * 2 * 3; // numPoints -1 tubes, 3 quads per tube, 2 tris per quad, 3 points per tri
   coordinates = new float[numVertices * 3 * 3]; int index = 0;
   
   Point v; v.x = 0.0f; v.y = 1.0f; v.z = 0.0f; // Arbitrary v
@@ -462,7 +454,7 @@ void drawSpline()
 
   for (int i = 1; i < numPoints; i++)
   {
-    float u = 0.001f * (i + 1);
+    float u = speed * i;
     // Iterate
     t = unit(tangentOnSpline(u));
     n = unit(cross(b, t));
@@ -472,12 +464,175 @@ void drawSpline()
     coordinates[index++] = n.x; coordinates[index++] = n.y; coordinates[index++] = n.z;
     coordinates[index++] = b.x; coordinates[index++] = b.y; coordinates[index++] = b.z;
   }
+
+  if (vboVertices != nullptr)
+  {
+    delete vboVertices;
+    vboVertices = nullptr;
+  }
+  if (vboColors != nullptr)
+  {
+    delete vboColors;
+    vboColors = nullptr;
+  }
+  if (vao != nullptr) {
+    delete vao;
+    vao = nullptr;
+  }
+
+  // float* positions = new float[numVertices * 3]; int vertexIndex = 0;
+  // float* colors = new float[numVertices * 4]; int colorIndex = 0;
+  float * positions = (float*) malloc (numVertices * 3 * sizeof(float)); int vertexIndex = 0;
+  float * colors = (float*) malloc (numVertices * 4 * sizeof(float)); int colorIndex = 0;
+  
+  for (int i = 0; i < numPoints - 1; i++)
+  {
+    Point p0 = pointOnSpline(speed * i);
+    Point p1 = pointOnSpline(speed * (i+1));
+    int coordIndex = i * 9;
+    Point t0; t0.x = coordinates[coordIndex++]; t0.y = coordinates[coordIndex++]; t0.z = coordinates[coordIndex++];
+    Point n0; n0.x = coordinates[coordIndex++]; n0.y = coordinates[coordIndex++]; n0.z = coordinates[coordIndex++];
+    Point b0; b0.x = coordinates[coordIndex++]; b0.y = coordinates[coordIndex++]; b0.z = coordinates[coordIndex++];
+    Point t1; t1.x = coordinates[coordIndex++]; t1.y = coordinates[coordIndex++]; t1.z = coordinates[coordIndex++];
+    Point n1; n1.x = coordinates[coordIndex++]; n1.y = coordinates[coordIndex++]; n1.z = coordinates[coordIndex++];
+    Point b1; b1.x = coordinates[coordIndex++]; b1.y = coordinates[coordIndex++]; b1.z = coordinates[coordIndex++];
+    // Equilateral triangular cross section. a, b, c go clockwise around p0, d, e, f go clockwise around p1.
+    float offset = 0.3f;
+    Point a = p0 + csScale * n0 - offset * n0;
+    Point b = p0 + csScale * root32 * b0 - csScale * 0.5f * n0 - offset * n0;
+    Point c = p0 - csScale * root32 * b0 - csScale * 0.5f * n0 - offset * n0;
+    Point d = p1 + csScale * n1 - offset * n1;
+    Point e = p1 + csScale * root32 * b1 - csScale * 0.5f * n1 - offset * n1;
+    Point f = p1 - csScale * root32 * b1 - csScale * 0.5f * n1 - offset * n1;
+
+    // printf("p0 = (%f, %f, %f)\n", p0.x, p0.y, p0.z);
+    // printf("b0 = (%f, %f, %f)\n", b0.x, b0.y, b0.z);
+    // printf("n0 = (%f, %f, %f)\n", n0.x, n0.y, n0.z);
+    // printf("0.5f * n0 = (%f, %f, %f)\n", (0.5f * n0).x, (0.5f * n0).y, (0.5f * n0).z);
+    // printf("root32 * b0 = (%f, %f, %f)\n", (root32 * b0).x, (root32 * b0).y, (root32 * b0).z);
+    // printf("p0 + root32 * b0 - 0.5f * n0 = (%f, %f, %f)\n", (p0 + root32 * b0 - 0.5f * n0).x, (p0 + root32 * b0 - 0.5f * n0).y, (p0 + root32 * b0 - 0.5f * n0).z);
+    
+    // Triangle 1: abd
+    positions[vertexIndex++] = a.x; positions[vertexIndex++] = a.y; positions[vertexIndex++] = a.z;
+    positions[vertexIndex++] = b.x; positions[vertexIndex++] = b.y; positions[vertexIndex++] = b.z;
+    positions[vertexIndex++] = d.x; positions[vertexIndex++] = d.y; positions[vertexIndex++] = d.z;
+    Point normal1 = unit(cross(d - b, a - b));
+    for (int j = 0; j < 3; j++)
+    {
+      colors[colorIndex++] = normal1.x;
+      colors[colorIndex++] = normal1.y;
+      colors[colorIndex++] = normal1.z;
+      colors[colorIndex++] = 1.0f;
+    }
+
+    // Triangle 2: bde
+    positions[vertexIndex++] = b.x; positions[vertexIndex++] = b.y; positions[vertexIndex++] = b.z;
+    positions[vertexIndex++] = d.x; positions[vertexIndex++] = d.y; positions[vertexIndex++] = d.z;
+    positions[vertexIndex++] = e.x; positions[vertexIndex++] = e.y; positions[vertexIndex++] = e.z;
+    Point normal2 = unit(cross(e - b, d - b));
+    for (int j = 0; j < 3; j++)
+    {
+      colors[colorIndex++] = normal2.x;
+      colors[colorIndex++] = normal2.y;
+      colors[colorIndex++] = normal2.z;
+      colors[colorIndex++] = 1.0f;
+    }
+
+    // Triangle 3: acf
+    positions[vertexIndex++] = a.x; positions[vertexIndex++] = a.y; positions[vertexIndex++] = a.z;
+    positions[vertexIndex++] = c.x; positions[vertexIndex++] = c.y; positions[vertexIndex++] = c.z;
+    positions[vertexIndex++] = f.x; positions[vertexIndex++] = f.y; positions[vertexIndex++] = f.z;
+    Point normal3 = unit(cross(f - a, c - a));
+    for (int j = 0; j < 3; j++)
+    {
+      colors[colorIndex++] = normal3.x;
+      colors[colorIndex++] = normal3.y;
+      colors[colorIndex++] = normal3.z;
+      colors[colorIndex++] = 1.0f;
+    }
+
+    // Triangle 4: adf
+    positions[vertexIndex++] = a.x; positions[vertexIndex++] = a.y; positions[vertexIndex++] = a.z;
+    positions[vertexIndex++] = d.x; positions[vertexIndex++] = d.y; positions[vertexIndex++] = d.z;
+    positions[vertexIndex++] = f.x; positions[vertexIndex++] = f.y; positions[vertexIndex++] = f.z;
+    Point normal4 = unit(cross(d - a, f - a));
+    for (int j = 0; j < 3; j++)
+    {
+      colors[colorIndex++] = normal4.x;
+      colors[colorIndex++] = normal4.y;
+      colors[colorIndex++] = normal4.z;
+      colors[colorIndex++] = 1.0f;
+    }
+
+    // Triangle 5: cbe
+    positions[vertexIndex++] = c.x; positions[vertexIndex++] = c.y; positions[vertexIndex++] = c.z;
+    positions[vertexIndex++] = b.x; positions[vertexIndex++] = b.y; positions[vertexIndex++] = b.z;
+    positions[vertexIndex++] = e.x; positions[vertexIndex++] = e.y; positions[vertexIndex++] = e.z;
+    Point normal5 = unit(cross(e - c, b - c));
+    for (int j = 0; j < 3; j++)
+    {
+      colors[colorIndex++] = normal5.x;
+      colors[colorIndex++] = normal5.y;
+      colors[colorIndex++] = normal5.z;
+      colors[colorIndex++] = 1.0f;
+    }
+
+    // Triangle 6: cef
+    positions[vertexIndex++] = c.x; positions[vertexIndex++] = c.y; positions[vertexIndex++] = c.z;
+    positions[vertexIndex++] = e.x; positions[vertexIndex++] = e.y; positions[vertexIndex++] = e.z;
+    positions[vertexIndex++] = f.x; positions[vertexIndex++] = f.y; positions[vertexIndex++] = f.z;
+    Point normal6 = unit(cross(f - c, e - c));
+    for (int j = 0; j < 3; j++)
+    {
+      colors[colorIndex++] = normal6.x;
+      colors[colorIndex++] = normal6.y;
+      colors[colorIndex++] = normal6.z;
+      colors[colorIndex++] = 1.0f;
+    }
+  }
+
+  printf("positions: %p\n", positions);
+  printf("colors: %p\n", colors);
+  printf("vboVertices: %p\n", vboVertices);
+  printf("vboColors: %p\n", vboColors);
+
+  printf("Creating VBOs...\n");
+  // Create the VBOs.
+  vboVertices = new VBO(numVertices, 3, positions, GL_STATIC_DRAW);
+  vboColors = new VBO(numVertices, 4, colors, GL_STATIC_DRAW);
+
+  printf("Creating VAO...\n");
+  // Create the VAO.
+  vao = new VAO();
+
+  printf("Connecting VBOs...\n");
+  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboVertices, "position");
+  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboColors, "color");
+
+  printf("Freeing dynamic memory...\n");
+  // delete[] positions;
+  // delete[] colors;
+  free(positions);
+  free(colors);
+
+  printf("Spline drawn\n");
+}
+
+void drawGround()
+{
+  GLuint textureHandle;
+  glGenTextures(1, &textureHandle);
+  if (initTexture("ground.jpg", textureHandle) != 0)
+  {
+    printf("Failed to initialize ground texture\n");
+  }
+
 }
 
 void idleFunc()
 {
   frameNumber++;
-  if (frameNumber > 1000) frameNumber = 1000;
+  if (frameNumber >= numPoints) frameNumber = numPoints - 1;
 
   // Notify GLUT that it should call displayFunc.
   glutPostRedisplay();
@@ -648,7 +803,6 @@ void displayFunc()
   // First, clear the screen.
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  printf("Frame #%d\n", frameNumber);
   float u = speed * frameNumber;
   Point p = pointOnSpline(u);
   int coordIndex = frameNumber * 9;
@@ -698,7 +852,7 @@ void displayFunc()
   // Execute the rendering.
   // Bind the VAO that we want to render. Remember, one object = one VAO. 
   vao->Bind();
-  glDrawArrays(GL_LINES, 0, numVertices); // Render the VAO, by rendering "numVertices", starting from vertex 0.
+  glDrawArrays(GL_TRIANGLES, 0, numVertices); // Render the VAO, by rendering "numVertices", starting from vertex 0.
 
   // Swap the double-buffers.
   glutSwapBuffers();
