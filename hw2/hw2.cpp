@@ -67,7 +67,7 @@ OpenGLMatrix matrix;
 PipelineProgram * railPipeline = nullptr;
 PipelineProgram * groundPipeline = nullptr;
 VBO * vboVertices = nullptr;
-VBO * vboColors = nullptr;
+VBO * vboNormals = nullptr;
 VAO * vao = nullptr;
 VBO * groundVertices = nullptr;
 VBO * groundUVs = nullptr;
@@ -477,10 +477,10 @@ void drawSpline()
     delete vboVertices;
     vboVertices = nullptr;
   }
-  if (vboColors != nullptr)
+  if (vboNormals != nullptr)
   {
-    delete vboColors;
-    vboColors = nullptr;
+    delete vboNormals;
+    vboNormals = nullptr;
   }
   if (vao != nullptr) {
     delete vao;
@@ -488,9 +488,9 @@ void drawSpline()
   }
 
   // float* positions = new float[numVertices * 3]; int vertexIndex = 0;
-  // float* colors = new float[numVertices * 4]; int colorIndex = 0;
+  // float* normals = new float[numVertices * 3]; int colorIndex = 0;
   float * positions = (float*) malloc (numVertices * 3 * sizeof(float)); int vertexIndex = 0;
-  float * colors = (float*) malloc (numVertices * 4 * sizeof(float)); int colorIndex = 0;
+  float * normals = (float*) malloc (numVertices * 3 * sizeof(float)); int colorIndex = 0;
   
   for (int i = 0; i < numPoints - 1; i++)
   {
@@ -526,10 +526,9 @@ void drawSpline()
     Point normal1 = unit(cross(d - b, a - b));
     for (int j = 0; j < 3; j++)
     {
-      colors[colorIndex++] = normal1.x;
-      colors[colorIndex++] = normal1.y;
-      colors[colorIndex++] = normal1.z;
-      colors[colorIndex++] = 1.0f;
+      normals[colorIndex++] = normal1.x;
+      normals[colorIndex++] = normal1.y;
+      normals[colorIndex++] = normal1.z;
     }
 
     // Triangle 2: bde
@@ -539,10 +538,9 @@ void drawSpline()
     Point normal2 = unit(cross(e - b, d - b));
     for (int j = 0; j < 3; j++)
     {
-      colors[colorIndex++] = normal2.x;
-      colors[colorIndex++] = normal2.y;
-      colors[colorIndex++] = normal2.z;
-      colors[colorIndex++] = 1.0f;
+      normals[colorIndex++] = normal2.x;
+      normals[colorIndex++] = normal2.y;
+      normals[colorIndex++] = normal2.z;
     }
 
     // Triangle 3: acf
@@ -552,10 +550,9 @@ void drawSpline()
     Point normal3 = unit(cross(f - a, c - a));
     for (int j = 0; j < 3; j++)
     {
-      colors[colorIndex++] = normal3.x;
-      colors[colorIndex++] = normal3.y;
-      colors[colorIndex++] = normal3.z;
-      colors[colorIndex++] = 1.0f;
+      normals[colorIndex++] = normal3.x;
+      normals[colorIndex++] = normal3.y;
+      normals[colorIndex++] = normal3.z;
     }
 
     // Triangle 4: adf
@@ -565,10 +562,9 @@ void drawSpline()
     Point normal4 = unit(cross(d - a, f - a));
     for (int j = 0; j < 3; j++)
     {
-      colors[colorIndex++] = normal4.x;
-      colors[colorIndex++] = normal4.y;
-      colors[colorIndex++] = normal4.z;
-      colors[colorIndex++] = 1.0f;
+      normals[colorIndex++] = normal4.x;
+      normals[colorIndex++] = normal4.y;
+      normals[colorIndex++] = normal4.z;
     }
 
     // Triangle 5: cbe
@@ -578,10 +574,9 @@ void drawSpline()
     Point normal5 = unit(cross(e - c, b - c));
     for (int j = 0; j < 3; j++)
     {
-      colors[colorIndex++] = normal5.x;
-      colors[colorIndex++] = normal5.y;
-      colors[colorIndex++] = normal5.z;
-      colors[colorIndex++] = 1.0f;
+      normals[colorIndex++] = normal5.x;
+      normals[colorIndex++] = normal5.y;
+      normals[colorIndex++] = normal5.z;
     }
 
     // Triangle 6: cef
@@ -591,25 +586,24 @@ void drawSpline()
     Point normal6 = unit(cross(f - c, e - c));
     for (int j = 0; j < 3; j++)
     {
-      colors[colorIndex++] = normal6.x;
-      colors[colorIndex++] = normal6.y;
-      colors[colorIndex++] = normal6.z;
-      colors[colorIndex++] = 1.0f;
+      normals[colorIndex++] = normal6.x;
+      normals[colorIndex++] = normal6.y;
+      normals[colorIndex++] = normal6.z;
     }
   }
   // Create the VBOs.
   vboVertices = new VBO(numVertices, 3, positions, GL_STATIC_DRAW);
-  vboColors = new VBO(numVertices, 4, colors, GL_STATIC_DRAW);
+  vboNormals = new VBO(numVertices, 3, normals, GL_STATIC_DRAW);
   // Create the VAO.
   vao = new VAO();
 
   vao->ConnectPipelineProgramAndVBOAndShaderVariable(railPipeline, vboVertices, "position");
-  vao->ConnectPipelineProgramAndVBOAndShaderVariable(railPipeline, vboColors, "color");
+  vao->ConnectPipelineProgramAndVBOAndShaderVariable(railPipeline, vboNormals, "normal");
 
   // delete[] positions;
-  // delete[] colors;
+  // delete[] normals;
   free(positions);
-  free(colors);
+  free(normals);
 }
 
 void drawGround()
@@ -891,6 +885,40 @@ void displayFunc()
   railPipeline->Bind();
   railPipeline->SetUniformVariableMatrix4fv("modelViewMatrix", GL_FALSE, modelViewMatrix);
   railPipeline->SetUniformVariableMatrix4fv("projectionMatrix", GL_FALSE, projectionMatrix);
+  // Light direction
+  float lightDirection[3] = { 0, 0, 1 }; // the “Sun” at noon
+  // float viewLightDirection[3]; // light direction in the view space
+  // // the following line is pseudo-code:
+  // viewLightDirection[0] = modelViewMatrix[0] * lightDirection[0]
+  //                       + modelViewMatrix[4] + lightDirection[1]
+  //                       + modelViewMatrix[8] + lightDirection[2];
+  // viewLightDirection[1] = modelViewMatrix[1] * lightDirection[0]
+  //                       + modelViewMatrix[5] + lightDirection[1]
+  //                       + modelViewMatrix[9] + lightDirection[2];
+  // viewLightDirection[2] = modelViewMatrix[2] * lightDirection[0]
+  //                       + modelViewMatrix[6] + lightDirection[1]
+  //                       + modelViewMatrix[10] + lightDirection[2];
+  // upload viewLightDirection to the GPU
+  railPipeline->SetUniformVariable3fv("lightDirection", lightDirection);
+  // Normal matrix
+  float normalMatrix[16];
+  matrix.SetMatrixMode(OpenGLMatrix::ModelView);
+  matrix.GetNormalMatrix(normalMatrix); // get normal matrix
+  railPipeline->SetUniformVariableMatrix4fv("normalMatrix", GL_FALSE, normalMatrix);
+  float La[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+  float Ld[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+  float Ls[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+  float ka[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
+  float kd[4] = { 0.5f, 0.5f, 0.5f, 0.5f };
+  float ks[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+  float alpha = 1.5f;
+  railPipeline->SetUniformVariable4fv("La", La);
+  railPipeline->SetUniformVariable4fv("Ld", Ld);
+  railPipeline->SetUniformVariable4fv("Ls", Ls);
+  railPipeline->SetUniformVariable4fv("ka", ka);
+  railPipeline->SetUniformVariable4fv("kd", kd);
+  railPipeline->SetUniformVariable4fv("ks", ks);
+  railPipeline->SetUniformVariablef("alpha", alpha);
   vao->Bind();
   glDrawArrays(GL_TRIANGLES, 0, numVertices); // Render the VAO, by rendering "numVertices", starting from vertex 0.
 
@@ -922,10 +950,10 @@ void initScene(int argc, char *argv[])
   // Load and set up the pipeline program, including its shaders.
   if (railPipeline->BuildShadersFromFiles(shaderBasePath, "vertexShader.glsl", "fragmentShader.glsl") != 0)
   {
-    cout << "Failed to build the pipeline program." << endl;
+    cout << "Failed to build the rail pipeline program." << endl;
     throw 1;
   } 
-  cout << "Successfully built the pipeline program." << endl;
+  cout << "Successfully built the rail pipeline program." << endl;
 
   groundPipeline = new PipelineProgram();
   if (groundPipeline->BuildShadersFromFiles(shaderBasePath, "groundVertexShader.glsl", "groundFragmentShader.glsl") != 0)

@@ -78,7 +78,7 @@ int targetScreenshotCount = 280;
 OpenGLMatrix matrix;
 PipelineProgram * pipelineProgram = nullptr;
 VBO * vboVertices = nullptr;
-VBO * vboColors = nullptr;
+VBO * vboNormals = nullptr;
 VBO * vboLeft = nullptr;
 VBO * vboRight = nullptr;
 VBO * vboUp = nullptr;
@@ -256,10 +256,10 @@ void computeHeightData()
     delete vboVertices;
     vboVertices = nullptr;
   }
-  if (vboColors == nullptr)
+  if (vboNormals == nullptr)
   {
-    delete vboColors;
-    vboColors = nullptr;
+    delete vboNormals;
+    vboNormals = nullptr;
   }
   if (vao == nullptr) {
     delete vao;
@@ -433,7 +433,7 @@ void computeHeightData()
 
   // Create the VBOs.
   vboVertices = new VBO(numVertices, 3, positions, GL_STATIC_DRAW);
-  vboColors = new VBO(numVertices, 4, colors, GL_STATIC_DRAW);
+  vboNormals = new VBO(numVertices, 4, colors, GL_STATIC_DRAW);
   
   if (smoothing)
   {
@@ -447,7 +447,7 @@ void computeHeightData()
   vao = new VAO();
 
   vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboVertices, "position");
-  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboColors, "color");
+  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboNormals, "color");
 
   if (smoothing)
   {
