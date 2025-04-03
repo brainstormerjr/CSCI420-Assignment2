@@ -60,13 +60,20 @@ char windowTitle[512] = "CSCI 420 Homework 2";
 
 int numPoints = 10001;
 int numVertices;
+int numGroundVertices;
 
 // CSCI 420 helper classes.
 OpenGLMatrix matrix;
-PipelineProgram * pipelineProgram = nullptr;
+PipelineProgram * railPipeline = nullptr;
+PipelineProgram * groundPipeline = nullptr;
 VBO * vboVertices = nullptr;
 VBO * vboColors = nullptr;
 VAO * vao = nullptr;
+VBO * groundVertices = nullptr;
+VBO * groundUVs = nullptr;
+VAO * groundVAO = nullptr;
+
+GLuint textureHandle;
 
 // Coordinate system information
 float* coordinates = nullptr;
@@ -590,43 +597,82 @@ void drawSpline()
       colors[colorIndex++] = 1.0f;
     }
   }
-
-  printf("positions: %p\n", positions);
-  printf("colors: %p\n", colors);
-  printf("vboVertices: %p\n", vboVertices);
-  printf("vboColors: %p\n", vboColors);
-
-  printf("Creating VBOs...\n");
   // Create the VBOs.
   vboVertices = new VBO(numVertices, 3, positions, GL_STATIC_DRAW);
   vboColors = new VBO(numVertices, 4, colors, GL_STATIC_DRAW);
-
-  printf("Creating VAO...\n");
   // Create the VAO.
   vao = new VAO();
 
-  printf("Connecting VBOs...\n");
-  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboVertices, "position");
-  vao->ConnectPipelineProgramAndVBOAndShaderVariable(pipelineProgram, vboColors, "color");
+  vao->ConnectPipelineProgramAndVBOAndShaderVariable(railPipeline, vboVertices, "position");
+  vao->ConnectPipelineProgramAndVBOAndShaderVariable(railPipeline, vboColors, "color");
 
-  printf("Freeing dynamic memory...\n");
   // delete[] positions;
   // delete[] colors;
   free(positions);
   free(colors);
-
-  printf("Spline drawn\n");
 }
 
 void drawGround()
 {
-  GLuint textureHandle;
   glGenTextures(1, &textureHandle);
   if (initTexture("ground.jpg", textureHandle) != 0)
   {
     printf("Failed to initialize ground texture\n");
   }
 
+  if (groundVertices != nullptr)
+  {
+    delete groundVertices;
+    groundVertices = nullptr;
+  }
+  if (groundUVs != nullptr)
+  {
+    delete groundUVs;
+    groundUVs = nullptr;
+  }
+  if (groundVAO != nullptr) {
+    delete groundVAO;
+    groundVAO = nullptr;
+  }
+
+  numGroundVertices = 6; // 2 tris to represent the square plane, 3 vertices per tri
+
+  // Vertex Positions
+  float * positions = new float[numGroundVertices * 3]; // 3 floats per vertex
+  // Triangle 1
+  positions[0] = -100.0f; positions[1] = -100.0f; positions[2] = -40.0f;
+  positions[3] = 100.0f; positions[4] = -100.0f; positions[5] = -40.0f;
+  positions[6] = 100.0f; positions[7] = 100.0f; positions[8] = -40.0f;
+  // Triangle 2
+  positions[9] = -100.0f; positions[10] = -100.0f; positions[11] = -40.0f;
+  positions[12] = 100.0f; positions[13] = 100.0f; positions[14] = -40.0f;
+  positions[15] = -100.0f; positions[16] = 100.0f; positions[17] = -40.0f;
+
+  // UVs
+  float * uvs = new float[numGroundVertices * 2]; // 2 floats per vertex
+  // Write UVs for the two triangles
+  // Triangle 1: Bottom-left, Bottom-right, Top-right
+  uvs[0] = 0.0f; uvs[1] = 0.0f; // Bottom-left
+  uvs[2] = 1.0f; uvs[3] = 0.0f; // Bottom-right
+  uvs[4] = 1.0f; uvs[5] = 1.0f; // Top-right
+
+  // Triangle 2: Bottom-left, Top-right, Top-left
+  uvs[6] = 0.0f; uvs[7] = 0.0f; // Bottom-left
+  uvs[8] = 1.0f; uvs[9] = 1.0f; // Top-right
+  uvs[10] = 0.0f; uvs[11] = 1.0f; // Top-left
+
+  // Create a VBOs for positions and UVs
+  groundVertices = new VBO(numGroundVertices, 3, positions, GL_STATIC_DRAW);
+  groundUVs = new VBO(numGroundVertices, 2, uvs, GL_STATIC_DRAW);
+
+  groundVAO = new VAO();
+
+  // Connect the shader variable "texCoord" to the VBO
+  groundVAO->ConnectPipelineProgramAndVBOAndShaderVariable(groundPipeline, groundVertices, "position");
+  groundVAO->ConnectPipelineProgramAndVBOAndShaderVariable(groundPipeline, groundUVs, "texCoord");
+
+  delete[] positions;
+  delete[] uvs;
 }
 
 void idleFunc()
@@ -841,18 +887,19 @@ void displayFunc()
   matrix.SetMatrixMode(OpenGLMatrix::Projection);
   matrix.GetMatrix(projectionMatrix);
 
-  // Upload the modelview and projection matrices to the GPU. Note that these are "uniform" variables.
-  // Important: these matrices must be uploaded to *all* pipeline programs used.
-  // In hw1, there is only one pipeline program, but in hw2 there will be several of them.
-  // In such a case, you must separately upload to *each* pipeline program.
-  // Important: do not make a typo in the variable name below; otherwise, the program will malfunction.
-  pipelineProgram->SetUniformVariableMatrix4fv("modelViewMatrix", GL_FALSE, modelViewMatrix);
-  pipelineProgram->SetUniformVariableMatrix4fv("projectionMatrix", GL_FALSE, projectionMatrix);
-
-  // Execute the rendering.
-  // Bind the VAO that we want to render. Remember, one object = one VAO. 
+  // Render the rail using the railPipeline
+  railPipeline->Bind();
+  railPipeline->SetUniformVariableMatrix4fv("modelViewMatrix", GL_FALSE, modelViewMatrix);
+  railPipeline->SetUniformVariableMatrix4fv("projectionMatrix", GL_FALSE, projectionMatrix);
   vao->Bind();
   glDrawArrays(GL_TRIANGLES, 0, numVertices); // Render the VAO, by rendering "numVertices", starting from vertex 0.
+
+  // Render the ground using the groundPipeline
+  groundPipeline->Bind();
+  groundPipeline->SetUniformVariableMatrix4fv("modelViewMatrix", GL_FALSE, modelViewMatrix);
+  groundPipeline->SetUniformVariableMatrix4fv("projectionMatrix", GL_FALSE, projectionMatrix);
+  groundVAO->Bind();
+  glDrawArrays(GL_TRIANGLES, 0, numGroundVertices);
 
   // Swap the double-buffers.
   glutSwapBuffers();
@@ -871,14 +918,22 @@ void initScene(int argc, char *argv[])
   // In this homework, we only have one set of shaders, and therefore, there is only one pipeline program.
   // In hw2, we will need to shade different objects with different shaders, and therefore, we will have
   // several pipeline programs (e.g., one for the rails, one for the ground/sky, etc.).
-  pipelineProgram = new PipelineProgram(); // Load and set up the pipeline program, including its shaders.
+  railPipeline = new PipelineProgram(); // Load and set up the pipeline program, including its shaders.
   // Load and set up the pipeline program, including its shaders.
-  if (pipelineProgram->BuildShadersFromFiles(shaderBasePath, "vertexShader.glsl", "fragmentShader.glsl") != 0)
+  if (railPipeline->BuildShadersFromFiles(shaderBasePath, "vertexShader.glsl", "fragmentShader.glsl") != 0)
   {
     cout << "Failed to build the pipeline program." << endl;
     throw 1;
   } 
   cout << "Successfully built the pipeline program." << endl;
+
+  groundPipeline = new PipelineProgram();
+  if (groundPipeline->BuildShadersFromFiles(shaderBasePath, "groundVertexShader.glsl", "groundFragmentShader.glsl") != 0)
+  {
+    cout << "Failed to build the ground pipeline program." << endl;
+    throw 1;
+  }
+  cout << "Successfully built the ground pipeline program" << endl;
     
   // Bind the pipeline program that we just created. 
   // The purpose of binding a pipeline program is to activate the shaders that it contains, i.e.,
@@ -886,9 +941,10 @@ void initScene(int argc, char *argv[])
   // When the application starts, no pipeline program is bound, which means that rendering is not set up.
   // So, at some point (such as below), we need to bind a pipeline program.
   // From that point on, exactly one pipeline program is bound at any moment of time.
-  pipelineProgram->Bind();
+  railPipeline->Bind();
 
   drawSpline();
+  drawGround();
 
   // Check for any OpenGL errors.
   std::cout << "GL error status is: " << glGetError() << std::endl;
