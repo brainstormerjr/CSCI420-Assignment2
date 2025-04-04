@@ -58,7 +58,7 @@ int windowWidth = 1280;
 int windowHeight = 720;
 char windowTitle[512] = "CSCI 420 Homework 2";
 
-int numPoints = 10001;
+int numPoints;
 int numVertices;
 int numGroundVertices;
 
@@ -79,12 +79,14 @@ GLuint textureHandle;
 float* coordinates = nullptr;
 
 // Camera speed
-const float speed = 0.0003f;
+const float speed = 0.0005f;
 int frameNumber = 0;
 
 // Cross section calculation
-float root32 = 0.8660254038f;
+float root32 = 0.8660254038f; // root(3)/2
 float csScale = 0.1f;
+
+int numFrames = 1000;
 
 // Write a screenshot to the specified filename.
 void saveScreenshot(const char * filename)
@@ -445,6 +447,7 @@ void drawSpline()
 
   // 3 vectors per coordinate system, 3 floats per vector
   // Stored in the order t, n, then b
+  numPoints = static_cast<int>(1.0f / speed);
   numVertices = (numPoints - 1) * 3 * 2 * 3; // numPoints -1 tubes, 3 quads per tube, 2 tris per quad, 3 points per tri
   coordinates = new float[numVertices * 3 * 3]; int index = 0;
   
@@ -672,7 +675,13 @@ void drawGround()
 void idleFunc()
 {
   frameNumber++;
-  if (frameNumber >= numPoints) frameNumber = numPoints - 1;
+  if (frameNumber > numPoints) frameNumber = numPoints;
+  if (frameNumber < numFrames)
+  {
+    char filename[256];
+    sprintf(filename, "output/%03d.jpg", frameNumber);
+    saveScreenshot(filename);
+  }
 
   // Notify GLUT that it should call displayFunc.
   glutPostRedisplay();
